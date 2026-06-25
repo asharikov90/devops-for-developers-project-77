@@ -1,0 +1,242 @@
+---
+- name: Деплой контейнера из GitLab Container Registry
+  hosts: all
+
+  tasks:
+    - name: Авторизация в GitLab Container Registry
+      community.docker.docker_login:
+        registry_url: "{{ registry_url }}"
+        username: "{{ registry_user }}"
+        password: "{{ registry_password }}"
+
+    - name: Создание docker-сети для приложения
+      community.docker.docker_network:
+        name: rasp-network
+
+    - name: Создание volume для сертификатов Let's Encrypt
+      community.docker.docker_volume:
+        name: "{{ certbot_letsencrypt_volume }}"
+      when: certbot_enabled | bool or nginx_ssl_enabled | bool
+
+    - name: Создание volume для ACME webroot challenge
+      community.docker.docker_volume:
+        name: "{{ certbot_webroot_volume }}"
+      when: certbot_enabled | bool
+
+    - name: Проверка настроек certbot
+      ansible.builtin.assert:
+        that:
+          - certbot_email | length > 0
+          - certbot_domain_list | length > 0
+          - certbot_domain_list | reject('equalto', '') | list | length == certbot_domain_list | length
+          - certbot_domain_list | select('search', '^[A-Za-z0-9.-]+$') | list | length == certbot_domain_list | length
+        fail_msg: >-
+          Заполните certbot_email и certbot_domains в group_vars/all.yml.
+          certbot_domains должен быть YAML-списком доменов, например:
+          certbot_domains:
+            - rasp.asharikov.ru
+      when: certbot_enabled | bool
+
+    - name: Создание директории для конфига nginx
+      ansible.builtin.file:
+        path: "{{ nginx_host_config_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Запись конфига nginx
+      ansible.builtin.template:
+        src: nginx-default.conf.j2
+        dest: "{{ nginx_host_config_file }}"
+        mode: "0644"
+      register: nginx_config_template
+
+    - name: Проверка настроек env-файла приложения
+      ansible.builtin.assert:
+        that:
+          - app_ya_rasp_api_key is defined and app_ya_rasp_api_key is not none and (app_ya_rasp_api_key | string | length) > 0
+          - app_database_url is defined and app_database_url is not none and (app_database_url | string | length) > 0
+          - app_sync_station_list is defined and app_sync_station_list is not none and (app_sync_station_list | string | length) > 0
+          - app_storage_type is defined and app_storage_type is not none and (app_storage_type | string | length) > 0
+          - messenger_transport_dsn is defined and messenger_transport_dsn is not none and (messenger_transport_dsn | string | length) > 0
+          - amazon_s3_key is defined and amazon_s3_key is not none and (amazon_s3_key | string | length) > 0
+          - amazon_s3_secret is defined and amazon_s3_secret is not none and (amazon_s3_secret | string | length) > 0
+          - amazon_s3_bucket is defined and amazon_s3_bucket is not none and (amazon_s3_bucket | string | length) > 0
+          - amazon_s3_region is defined and amazon_s3_region is not none and (amazon_s3_region | string | length) > 0
+          - amazon_s3_version is defined and amazon_s3_version is not none and (amazon_s3_version | string | length) > 0
+        fail_msg: >-
+          Заполните vault_ya_rasp_api_key, vault_database_url и
+          vault_app_sync_station_list, vault_app_storage_type,
+          vault_messenger_transport_dsn, vault_amazon_s3_* в
+          group_vars/webservers/vault.yml.
+
+    - name: Удаление legacy env-файла приложения на хосте
+      ansible.builtin.file:
+        path: "{{ app_host_env_file }}"
+        state: absent
+      no_log: true
+
+    - name: Скачивание (Pull) и запуск контейнера app
+      community.docker.docker_container:
+        name: rasp-app
+        image: "{{ image_app }}"
+        state: started
+        restart_policy: always
+        pull: true
+        networks:
+          - name: rasp-network
+            aliases:
+              - php
+        env:
+          APP_ENV: "prod"
+          APP_DEBUG: "0"
+          YA_RASP_API_KEY: "{{ app_ya_rasp_api_key | string }}"
+          DATABASE_URL: "{{ app_database_url | string }}"
+          APP_SYNC_STATION_LIST: "{{ app_sync_station_list | string }}"
+          APP_STORAGE_TYPE: "{{ app_storage_type | string }}"
+          MESSENGER_TRANSPORT_DSN: "{{ messenger_transport_dsn | string }}"
+          AMAZON_S3_ENDPOINT: "{{ amazon_s3_endpoint | string }}"
+          AMAZON_S3_KEY: "{{ amazon_s3_key | string }}"
+          AMAZON_S3_SECRET: "{{ amazon_s3_secret | string }}"
+          AMAZON_S3_BUCKET: "{{ amazon_s3_bucket | string }}"
+          AMAZON_S3_REGION: "{{ amazon_s3_region | string }}"
+          AMAZON_S3_VERSION: "{{ amazon_s3_version | string }}"
+          APP_DASHBOARD_LAST_STATION_COUNT: "{{ app_dashboard_last_station_count }}"
+          APP_DASHBOARD_LAST_STATION_LIST_SYNC_COUNT: "{{ app_dashboard_last_station_list_sync_count }}"
+          APP_DASHBOARD_LAST_STATION_LIST_DOWNLOAD_COUNT: "{{ app_dashboard_last_station_list_download_count }}"
+        volumes: []
+        comparisons:
+          env: strict
+          volumes: strict
+      no_log: true
+      register: app_container
+
+    - name: Настройка владельца /app внутри контейнера
+      community.docker.docker_container_exec:
+        container: rasp-app
+        user: root
+        argv:
+          - sh
+          - -c
+          - >-
+            if find /app \( ! -user {{ app_container_owner_uid }} -o ! -group {{ app_container_owner_gid }} \) -print -quit | grep -q .;
+            then chown -R {{ app_container_owner_uid }}:{{ app_container_owner_gid }} /app && echo changed;
+            else echo ok;
+            fi
+      register: app_chown
+      changed_when: "'changed' in app_chown.stdout"
+
+    - name: Перезапуск app
+      community.docker.docker_container:
+        name: rasp-app
+        state: started
+        restart: true
+      register: app_container_restart
+
+    - name: Скачивание (Pull) и запуск контейнера front
+      community.docker.docker_container:
+        name: rasp-front
+        image: "{{ image_front }}"
+        state: started
+        restart_policy: always
+        pull: true
+        networks:
+          - name: rasp-network
+            aliases:
+              - front
+
+    - name: Скачивание (Pull) и запуск контейнера nginx
+      community.docker.docker_container:
+        name: rasp-nginx
+        image: "{{ image_nginx }}"
+        state: started
+        restart_policy: always
+        pull: true
+        networks:
+          - name: rasp-network
+        ports:
+          - "80:80"
+          - "443:443"
+        volumes: "{{ [
+          nginx_host_config_file ~ ':' ~ nginx_container_config_file ~ ':ro'
+        ] + ((certbot_enabled | bool or nginx_ssl_enabled | bool) | ternary([
+          certbot_letsencrypt_volume ~ ':/etc/letsencrypt:ro'
+        ], [])) + (certbot_enabled | bool | ternary([
+          certbot_webroot_volume ~ ':' ~ certbot_webroot_path ~ ':rw'
+        ], [])) }}"
+
+    - name: Перезапуск nginx после изменения конфига
+      community.docker.docker_container:
+        name: rasp-nginx
+        state: started
+        restart: true
+      when: nginx_config_template.changed
+
+    - name: Получение/обновление сертификата Let's Encrypt через certbot
+      community.docker.docker_container:
+        name: rasp-certbot
+        image: "{{ certbot_image }}"
+        state: started
+        detach: false
+        cleanup: true
+        command: >-
+          certonly
+          --webroot
+          --webroot-path {{ certbot_webroot_path }}
+          --non-interactive
+          --agree-tos
+          --no-eff-email
+          --expand
+          --email {{ certbot_email }}
+          {% if certbot_staging | bool %}--staging{% endif %}
+          {% for domain in certbot_domain_list %}-d {{ domain }} {% endfor %}
+        volumes:
+          - "{{ certbot_letsencrypt_volume }}:/etc/letsencrypt"
+          - "{{ certbot_webroot_volume }}:{{ certbot_webroot_path }}"
+        network_mode: "{{ (certbot_network_mode | length > 0) | ternary(certbot_network_mode, omit) }}"
+        dns_servers: "{{ (certbot_dns_servers | length > 0) | ternary(certbot_dns_servers, omit) }}"
+      when:
+        - certbot_enabled | bool
+        - certbot_email | length > 0
+        - certbot_domain_list | length > 0
+
+    - name: Настройка cron для автоматического продления сертификатов
+      ansible.builtin.cron:
+        name: rasp certbot renew
+        minute: "17"
+        hour: "3"
+        job: >-
+          docker run --rm
+          {% if certbot_network_mode | length > 0 %}--network {{ certbot_network_mode }} {% endif %}
+          {% for dns_server in certbot_dns_servers %}--dns {{ dns_server }} {% endfor %}
+          -v {{ certbot_letsencrypt_volume }}:/etc/letsencrypt
+          -v {{ certbot_webroot_volume }}:{{ certbot_webroot_path }}
+          {{ certbot_image }} renew --webroot --webroot-path {{ certbot_webroot_path }}
+          && docker restart rasp-nginx
+      when: certbot_enabled | bool
+
+    - name: Запуск миграций
+      community.docker.docker_container_exec:
+        container: rasp-app
+        chdir: /app
+        argv:
+          - php
+          - bin/console
+          - d:m:m
+          - --quiet
+
+    - name: Очистка кеша приложения
+      community.docker.docker_container_exec:
+        container: rasp-app
+        chdir: /app
+        argv:
+          - php
+          - bin/console
+          - cache:clear
+          - --env=prod
+          - --no-debug
+
+    - name: Удаление Docker-образов без тегов
+      community.docker.docker_prune:
+        images: true
+        images_filters:
+          dangling: true
