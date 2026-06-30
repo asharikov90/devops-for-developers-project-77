@@ -13,6 +13,41 @@
       community.docker.docker_network:
         name: rasp-network
 
+    - name: Проверка настроек Datadog
+      ansible.builtin.assert:
+        that:
+          - datadog_api_key is defined
+          - datadog_api_key | string | length > 0
+          - datadog_site | string | length > 0
+        fail_msg: "Для Datadog заполните vault_datadog_api_key и datadog_site."
+      when: datadog_enabled | bool
+
+    - name: Запуск Datadog Agent
+      community.docker.docker_container:
+        name: dd-agent
+        image: "{{ datadog_agent_image }}"
+        state: started
+        restart_policy: always
+        pull: true
+        pid_mode: host
+        env:
+          DD_API_KEY: "{{ datadog_api_key | string }}"
+          DD_SITE: "{{ datadog_site | string }}"
+          DD_ENV: "{{ datadog_env | string }}"
+          DD_SERVICE: "{{ datadog_service | string }}"
+          DD_TAGS: "{{ datadog_tags | join(' ') }}"
+          DD_DOCKER_LABELS_AS_TAGS: "true"
+          DD_LOGS_ENABLED: "{{ datadog_logs_enabled | bool | ternary('true', 'false') }}"
+          DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "{{ datadog_logs_enabled | bool | ternary('true', 'false') }}"
+          DD_APM_ENABLED: "{{ datadog_apm_enabled | bool | ternary('true', 'false') }}"
+          DD_CONTAINER_EXCLUDE: "name:dd-agent"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock:ro
+          - /proc/:/host/proc/:ro
+          - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      no_log: true
+      when: datadog_enabled | bool
+
     - name: Создание volume для сертификатов Let's Encrypt
       community.docker.docker_volume:
         name: "{{ certbot_letsencrypt_volume }}"
@@ -86,6 +121,10 @@
           - name: rasp-network
             aliases:
               - php
+        labels:
+          com.datadoghq.tags.env: "{{ datadog_env | string }}"
+          com.datadoghq.tags.service: "{{ datadog_service | string }}"
+          com.datadoghq.tags.version: "{{ image_app | string }}"
         env:
           APP_ENV: "prod"
           APP_DEBUG: "0"
@@ -143,6 +182,10 @@
           - name: rasp-network
             aliases:
               - front
+        labels:
+          com.datadoghq.tags.env: "{{ datadog_env | string }}"
+          com.datadoghq.tags.service: "{{ datadog_service }}-front"
+          com.datadoghq.tags.version: "{{ image_front | string }}"
 
     - name: Скачивание (Pull) и запуск контейнера nginx
       community.docker.docker_container:
@@ -153,6 +196,10 @@
         pull: true
         networks:
           - name: rasp-network
+        labels:
+          com.datadoghq.tags.env: "{{ datadog_env | string }}"
+          com.datadoghq.tags.service: "{{ datadog_service }}-nginx"
+          com.datadoghq.tags.version: "{{ image_nginx | string }}"
         ports:
           - "80:80"
           - "443:443"

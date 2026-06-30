@@ -6,6 +6,11 @@ resource "twc_firewall" "vm" {
     id   = twc_server.rasp_vds.id
     type = "server"
   }
+
+  link {
+    id   = twc_server.rasp_vds_2.id
+    type = "server"
+  }
 }
 
 resource "twc_firewall_rule" "vm_ingress_https" {

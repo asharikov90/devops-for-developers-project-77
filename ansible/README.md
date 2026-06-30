@@ -9,6 +9,8 @@ Ansible-плейбук для деплоя приложения из GitLab Cont
 - контейнер nginx `rasp-nginx`;
 - nginx-конфиг из шаблона `templates/nginx-default.conf.j2`;
 - опционально certbot для выпуска и продления Let's Encrypt сертификата.
+- опционально Datadog Agent как Docker-контейнер;
+- генерацию `terraform/terraform.tfvars` из Ansible-переменных.
 
 ## Требования
 
@@ -39,10 +41,37 @@ make install
 - `group_vars/webservers/vars.yml` - публичные переменные для образов и registry.
 - `group_vars/webservers/vault.yml` - секреты Ansible Vault.
 - `templates/nginx-default.conf.j2` - шаблон nginx-конфига.
+- `templates/terraform.tfvars.j2` - шаблон переменных Terraform.
+- `generate-terraform-vars.yml` - playbook для генерации `terraform.tfvars`.
 - `templates/.env` - шаблон env-файла приложения, который монтируется в контейнер как `/app/.env.prod`.
 - `Makefile` - короткие команды для установки зависимостей, HTTP/HTTPS-деплоя и первичного выпуска сертификата.
 
 ## Переменные
+
+### Terraform variables
+
+`terraform.tfvars` можно сгенерировать из Ansible:
+
+```bash
+make terraform-vars
+```
+
+Публичные значения задаются в `group_vars/all.yml`:
+
+```yaml
+terraform_project_name: "Общий проект"
+terraform_location: ru-3
+terraform_availability_zone: msk-1
+terraform_ssh_public_key: "ssh-ed25519 AAAA..."
+terraform_dns_zone_name: "example.com"
+terraform_dns_record_name: "rasp"
+```
+
+Секрет БД лучше хранить в vault:
+
+```yaml
+vault_terraform_db_password: "change-me"
+```
 
 ### Docker registry и образы
 
@@ -55,6 +84,32 @@ image_app: "{{ vault_image_app }}"
 registry_user: "{{ vault_registry_user }}"
 registry_password: "{{ vault_registry_token }}"
 ```
+
+### Datadog
+
+Datadog Agent запускается на каждом host из inventory, если включить флаг:
+
+```bash
+make deploy EXTRA_ARGS="-e datadog_enabled=true"
+```
+
+В `group_vars/webservers/vault.yml` должен быть API key:
+
+```yaml
+vault_datadog_api_key: ""
+```
+
+Остальные настройки находятся в `group_vars/all.yml`:
+
+```yaml
+datadog_site: datadoghq.eu
+datadog_env: production
+datadog_service: rasp
+datadog_logs_enabled: true
+datadog_apm_enabled: false
+```
+
+Контейнеры `rasp-app`, `rasp-front` и `rasp-nginx` получают Datadog service/env/version labels.
 
 ### Env-файл приложения
 

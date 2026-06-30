@@ -33,3 +33,26 @@ app_host_env_dir: "{{ ansible_user_dir }}/.config/rasp/app"
 app_host_env_file: "{{ app_host_env_dir }}/.env.prod"
 app_container_owner_uid: 1000
 app_container_owner_gid: 1000
+
+datadog_enabled: false
+datadog_site: datadoghq.eu
+datadog_agent_image: gcr.io/datadoghq/agent:latest
+datadog_api_key: "{{ vault_datadog_api_key | default('') }}"
+datadog_env: production
+datadog_service: rasp
+datadog_logs_enabled: true
+datadog_apm_enabled: false
+datadog_tags:
+  - "project:rasp"
+  - "env:{{ datadog_env }}"
+
+terraform_project_name: "Общий проект"
+terraform_location: ru-3
+terraform_availability_zone: msk-1
+terraform_ssh_public_key: ""
+terraform_db_password: "{{ vault_terraform_db_password | default('') }}"
+terraform_db_hash_type: null
+terraform_load_balancer_name: rasp-lb
+terraform_load_balancer_health_check_path: /
+terraform_dns_zone_name: ""
+terraform_dns_record_name: ""

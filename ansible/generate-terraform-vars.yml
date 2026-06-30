@@ -1,0 +1,21 @@
+---
+- name: Генерация terraform.tfvars
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Проверка переменных Terraform
+      ansible.builtin.assert:
+        that:
+          - terraform_ssh_public_key | string | length > 0
+          - terraform_db_password | string | length > 0
+        fail_msg: "Заполните terraform_ssh_public_key и terraform_db_password/vault_terraform_db_password."
+      no_log: true
+
+    - name: Запись terraform.tfvars
+      ansible.builtin.template:
+        src: terraform.tfvars.j2
+        dest: ../terraform/terraform.tfvars
+        mode: "0600"
+      no_log: true

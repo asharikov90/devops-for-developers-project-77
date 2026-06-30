@@ -10,6 +10,9 @@ deploy-https:
 certbot-init:
 	ansible-playbook -i inventory.ini playbook.yml --ask-vault-pass -e certbot_enabled=true $(EXTRA_ARGS)
 
+terraform-vars:
+	ansible-playbook -i inventory.ini generate-terraform-vars.yml --ask-vault-pass $(EXTRA_ARGS)
+
 vault-encrypt:
 	ansible-vault encrypt group_vars/webservers/vault.yml
 

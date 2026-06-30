@@ -4,3 +4,10 @@ availability_zone = "msk-1"
 
 ssh_public_key = "ssh-ed25519 AAAA... user@example"
 db_password    = "change-me"
+
+load_balancer_name              = "rasp-lb"
+load_balancer_health_check_path = "/"
+
+# Leave empty to skip DNS creation, or set an existing Timeweb DNS zone.
+dns_zone_name   = "example.com"
+dns_record_name = "rasp"

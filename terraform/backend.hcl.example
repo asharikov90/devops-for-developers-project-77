@@ -1,0 +1,8 @@
+bucket   = "terraform-state"
+region   = "ru-1"
+endpoint = "https://s3.twcstorage.ru"
+
+# access_key and secret_key can also be passed through AWS_ACCESS_KEY_ID
+# and AWS_SECRET_ACCESS_KEY.
+access_key = "change-me"
+secret_key = "change-me"

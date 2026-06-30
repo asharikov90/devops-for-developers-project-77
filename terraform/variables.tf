@@ -33,3 +33,27 @@ variable "db_hash_type" {
   type        = string
   default     = null
 }
+
+variable "load_balancer_name" {
+  description = "Name for the Timeweb Cloud load balancer."
+  type        = string
+  default     = "rasp-lb"
+}
+
+variable "load_balancer_health_check_path" {
+  description = "HTTP path used by the load balancer health check."
+  type        = string
+  default     = "/"
+}
+
+variable "dns_zone_name" {
+  description = "Existing Timeweb Cloud DNS zone name. Leave empty to skip DNS record creation."
+  type        = string
+  default     = ""
+}
+
+variable "dns_record_name" {
+  description = "DNS record label inside dns_zone_name, for example @ or rasp. Leave empty to skip DNS record creation."
+  type        = string
+  default     = ""
+}

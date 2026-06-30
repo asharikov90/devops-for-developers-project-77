@@ -1,0 +1,12 @@
+project_name      = {{ terraform_project_name | to_json }}
+location          = {{ terraform_location | to_json }}
+availability_zone = {{ terraform_availability_zone | to_json }}
+
+ssh_public_key = {{ terraform_ssh_public_key | to_json }}
+db_password    = {{ terraform_db_password | to_json }}
+db_hash_type   = {{ terraform_db_hash_type | to_json }}
+
+load_balancer_name              = {{ terraform_load_balancer_name | to_json }}
+load_balancer_health_check_path = {{ terraform_load_balancer_health_check_path | to_json }}
+dns_zone_name                   = {{ terraform_dns_zone_name | to_json }}
+dns_record_name                 = {{ terraform_dns_record_name | to_json }}

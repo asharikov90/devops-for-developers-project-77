@@ -18,3 +18,13 @@ data "twc_database_preset" "postgres" {
   ram      = 1024
   disk     = 8 * 1024
 }
+
+data "twc_lb_preset" "rasp" {
+  location = var.location
+}
+
+data "twc_dns_zone" "app" {
+  count = var.dns_zone_name != "" && var.dns_record_name != "" ? 1 : 0
+
+  name = var.dns_zone_name
+}
